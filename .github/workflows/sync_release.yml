@@ -114,7 +114,7 @@ jobs:
         run: |
           RELEASE_TAG="${{ needs.check_for_updates.outputs.new_tag }}"
           GITHUB_REPO_URL="https://github.com/${{ github.repository }}"
-          GITEE_REPO_URL="https://gitee.com/wangnov/uv-custom"
+          GITEE_REPO_URL="https://gitee.com/sssijin/uv-custom"
 
           cat > release_notes.md <<EOF
           ## 🚀 uv 国内加速版 (同步自 uv官方版本 [$RELEASE_TAG](https://github.com/astral-sh/uv/releases/tag/$RELEASE_TAG))
