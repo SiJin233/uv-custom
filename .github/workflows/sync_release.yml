@@ -36,7 +36,7 @@ jobs:
         id: get_gitee_local_version
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-          GITEE_OWNER: "wangnov"
+          GITEE_OWNER: "sssijin"
           GITEE_REPO: "uv-custom"
         run: |
           set -euo pipefail
@@ -206,7 +206,7 @@ jobs:
         env:
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           RELEASE_TAG: ${{ needs.check_for_updates.outputs.new_tag }}
-          GITEE_OWNER: "wangnov"
+          GITEE_OWNER: "sssijin"
           GITEE_REPO: "uv-custom"
         run: |
           set -x
