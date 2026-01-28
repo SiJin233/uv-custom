@@ -57,6 +57,12 @@ jobs:
           RESPONSE=$(cat "$RESPONSE_FILE")
           rm -f "$RESPONSE_FILE"
 
+          if [ "$HTTP_CODE" = "404" ]; then
+            echo "Gitee 仓库还没有 Release，将创建首个 Release"
+            echo "tag=v0.0.0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          
           if [ "$HTTP_CODE" != "200" ]; then
             echo "请求 Gitee API 失败，HTTP 状态码: $HTTP_CODE" >&2
             echo "$RESPONSE" >&2
