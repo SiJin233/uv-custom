@@ -1,0 +1,120 @@
+name: Sync uv Python Assets
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "43 */6 * * *"
+
+concurrency:
+  group: sync-uv-python-assets
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      PUBLIC_BASE_URL: ${{ vars.PUBLIC_BASE_URL }}
+      MIRROR_KEY_PREFIX: ${{ vars.MIRROR_KEY_PREFIX }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_ENDPOINT_URL: ${{ secrets.AWS_ENDPOINT_URL }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
+      S3_BUCKET: ${{ secrets.S3_BUCKET }}
+      MIRROR_ENABLE_MULTIPART: "true"
+      MIRROR_MULTIPART_THRESHOLD_BYTES: "268435456"
+      MIRROR_PART_SIZE_BYTES: "134217728"
+      MIRROR_MAX_ATTEMPTS: "24"
+      MIRROR_BACKOFF_SECONDS: "5"
+      MIRROR_MAX_BACKOFF_SECONDS: "60"
+      MIRROR_REQUEST_INTERVAL_SECONDS: "2"
+      MIRROR_CONNECT_TIMEOUT_SECONDS: "10"
+      MIRROR_READ_TIMEOUT_SECONDS: "300"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install upload dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check boto3
+
+      - name: Validate mirror configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${PUBLIC_BASE_URL:?PUBLIC_BASE_URL is required}"
+          : "${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID is required}"
+          : "${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY is required}"
+          : "${AWS_ENDPOINT_URL:?AWS_ENDPOINT_URL is required}"
+          : "${AWS_REGION:?AWS_REGION is required}"
+          : "${S3_BUCKET:?S3_BUCKET is required}"
+
+      - name: Build rewritten python metadata and stage assets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          key_prefix="${MIRROR_KEY_PREFIX#/}"
+          key_prefix="${key_prefix%/}"
+          with_prefix() {
+            if [ -n "$key_prefix" ]; then
+              printf '%s/%s' "$key_prefix" "$1"
+            else
+              printf '%s' "$1"
+            fi
+          }
+
+          stage_dir="$RUNNER_TEMP/python-stage"
+          mkdir -p "$stage_dir/metadata"
+
+          curl --retry 6 --retry-delay 5 --retry-all-errors -LsSf \
+            https://raw.githubusercontent.com/astral-sh/uv/main/crates/uv-python/download-metadata.json \
+            -o "$stage_dir/upstream-download-metadata.json"
+
+          python3 -m scripts.mirrorctl build-python-downloads \
+            --input "$stage_dir/upstream-download-metadata.json" \
+            --output "$stage_dir/metadata/python-downloads.json" \
+            --manifest-output "$stage_dir/python-assets.json" \
+            --public-base-url "$PUBLIC_BASE_URL"
+
+          python3 -m scripts.mirrorctl download-python-assets \
+            --manifest "$stage_dir/python-assets.json" \
+            --stage-dir "$stage_dir"
+
+          if [ -d "$stage_dir/python-build-standalone" ]; then
+            python3 -m scripts.mirrorctl sync-dir-with-state \
+              --local-dir "$stage_dir/python-build-standalone" \
+              --prefix "$(with_prefix "python-build-standalone")" \
+              --state-key "$(with_prefix "state/python-build-standalone.json")" \
+              --cache-control "public, max-age=31536000, immutable"
+          fi
+
+          if [ -d "$stage_dir/pypy" ]; then
+            python3 -m scripts.mirrorctl sync-dir-with-state \
+              --local-dir "$stage_dir/pypy" \
+              --prefix "$(with_prefix "pypy")" \
+              --state-key "$(with_prefix "state/pypy.json")" \
+              --cache-control "public, max-age=31536000, immutable"
+          fi
+
+          if [ -d "$stage_dir/graalpython" ]; then
+            python3 -m scripts.mirrorctl sync-dir-with-state \
+              --local-dir "$stage_dir/graalpython" \
+              --prefix "$(with_prefix "graalpython")" \
+              --state-key "$(with_prefix "state/graalpython.json")" \
+              --cache-control "public, max-age=31536000, immutable"
+          fi
+
+          python3 -m scripts.mirrorctl upload-file \
+            --local-path "$stage_dir/metadata/python-downloads.json" \
+            --key "$(with_prefix "metadata/python-downloads.json")" \
+            --cache-control "public, max-age=300"
